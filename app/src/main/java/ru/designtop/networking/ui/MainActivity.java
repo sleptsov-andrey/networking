@@ -18,10 +18,8 @@ import com.bumptech.glide.Glide;
 import java.io.IOException;
 import java.util.List;
 
-import io.reactivex.android.schedulers.AndroidSchedulers;
-import io.reactivex.disposables.CompositeDisposable;
-import io.reactivex.disposables.Disposable;
-import io.reactivex.schedulers.Schedulers;
+import retrofit2.Call;
+import retrofit2.Callback;
 import retrofit2.Response;
 import ru.designtop.networking.R;
 import ru.designtop.networking.data.network.DefaultResponse;
@@ -45,8 +43,9 @@ public final class MainActivity extends AppCompatActivity {
     private View viewNoData;
     private TextView tvError;
 
-    private final CompositeDisposable compositeDisposable = new CompositeDisposable();
 
+    @Nullable
+    private Call<DefaultResponse<List<HitsDTO>>> searchRequest;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -66,12 +65,12 @@ public final class MainActivity extends AppCompatActivity {
     protected void onPause() {
         super.onPause();
         unbindUx();
-        compositeDisposable.clear();
     }
 
     private void unbindUx() {
         searchView.setOnQueryTextListener(null);
         btnTryAgain.setOnClickListener(null);
+        cancelCurrentRequestIfNeeded();
     }
 
     private void setupUi() {
@@ -116,13 +115,44 @@ public final class MainActivity extends AppCompatActivity {
 
     private void loadPics(@NonNull String search) {
         showState(State.Loading);
-        final Disposable searchDisposable = RestApi.getInstance()
+        cancelCurrentRequestIfNeeded();
+
+        searchRequest = RestApi.getInstance()
                 .pics()
-                .search(search)
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(this::checkResponseAndShowState, this::handleError);
-        compositeDisposable.add(searchDisposable);
+                .search(search);
+
+        searchRequest.enqueue(new Callback<DefaultResponse<List<HitsDTO>>>() {
+            @Override
+            public void onResponse(@NonNull Call<DefaultResponse<List<HitsDTO>>> call,
+                                   @NonNull Response<DefaultResponse<List<HitsDTO>>> response) {
+                checkResponseAndShowState(response);
+            }
+
+            @Override
+            public void onFailure(@NonNull Call<DefaultResponse<List<HitsDTO>>> call,
+                                  @NonNull Throwable t) {
+                handleError(t);
+            }
+        });
+    }
+
+    private void cancelCurrentRequestIfNeeded() {
+        if (searchRequest == null) {
+            return;
+        }
+
+        //check if request already cancelled
+        if (searchRequest.isCanceled()) {
+            searchRequest = null;
+            return;
+        }
+
+
+        //check if request executed OR already in queue
+        if (searchRequest.isExecuted()) {
+            searchRequest.cancel();
+            searchRequest = null;
+        }
     }
 
     private void handleError(Throwable throwable) {
